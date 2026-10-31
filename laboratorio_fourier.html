@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Laboratorio de Series de Fourier</title>
+<style>
+  :root { --bg:#f3f6fb; --card:#ffffff; --ink:#182338; --muted:#627087; --accent:#275dad; --line:#dbe3ef; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:28px 20px 22px; background:linear-gradient(120deg,#173d7a,#3479c9); color:white; }
+  header .wrap { max-width:1400px; margin:auto; }
+  h1 { margin:0 0 8px; font-size:clamp(1.6rem,3vw,2.3rem); }
+  header p { margin:0; opacity:.92; max-width:900px; line-height:1.5; }
+  main { max-width:1400px; margin:22px auto; padding:0 18px 30px; }
+  .global { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin-bottom:20px; display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; }
+  .global .note { color:var(--muted); font-size:.92rem; max-width:760px; }
+  .cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 5px 18px #20385a0b; min-width:0; }
+  .card h2 { margin:0 0 4px; font-size:1.25rem; }
+  .desc { color:var(--muted); font-size:.9rem; margin:0 0 12px; min-height:2.5em; }
+  canvas { display:block; width:100%; height:250px; background:#fbfdff; border:1px solid var(--line); border-radius:10px; }
+  .controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:14px; }
+  label { display:block; font-size:.86rem; font-weight:650; margin-bottom:6px; }
+  input[type="text"], select, input[type="number"] { width:100%; border:1px solid #c7d2e2; border-radius:8px; padding:10px; color:var(--ink); background:white; font:inherit; }
+  input[type="range"] { width:100%; accent-color:var(--accent); }
+  .full { grid-column:1/-1; }
+  .formula-help { font-size:.78rem; color:var(--muted); line-height:1.45; margin:6px 0 0; }
+  .button-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:13px; }
+  button { border:0; border-radius:9px; padding:10px 13px; cursor:pointer; font-weight:700; font:inherit; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid #8bb7ff; outline-offset:2px; }
+  .primary { background:var(--accent); color:white; }
+  .secondary { background:#e8eef8; color:#1d3d70; }
+  .stop { background:#fce8e8; color:#9c2525; }
+  .status { margin-top:9px; color:var(--muted); font-size:.83rem; min-height:1.2em; }
+  .small-label { color:var(--muted); font-size:.82rem; font-weight:500; }
+  footer { color:var(--muted); font-size:.9rem; margin-top:20px; line-height:1.55; }
+  @media(max-width:900px) { .cards { grid-template-columns:1fr; } }
+  @media(max-width:520px) { .controls { grid-template-columns:1fr; } .full { grid-column:auto; } canvas { height:220px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Laboratorio interactivo de Series de Fourier</h1>
+    <p>Compara cuatro señales, modifica el número de armónicos, observa sus gráficas y escucha cómo suenan a una frecuencia fundamental de 750 Hz.</p>
+  </div>
+</header>
+
+<main>
+  <section class="global">
+    <div>
+      <strong>Configuración de audio</strong>
+      <div class="note">El navegador puede pedir una interacción antes de reproducir sonido. Usa un volumen moderado; los tonos de 750 Hz pueden resultar intensos.</div>
+    </div>
+    <div style="min-width:220px">
+      <label for="volume">Volumen general: <span id="volumeText">20%</span></label>
+      <input id="volume" type="range" min="0" max="60" value="20">
+    </div>
+    <button id="stopAll" class="stop">■ Detener todos los sonidos</button>
+  </section>
+
+  <section class="cards" id="cards"></section>
+
+  <footer>
+    <strong>Expresiones de referencia:</strong> cada campo muestra automáticamente la expresión o la forma resumida de la serie correspondiente. El número de términos seleccionado controla la reconstrucción de las señales no sinusoidales y su reproducción de audio.
+    <br><br>
+    La frecuencia fundamental de audio es 750 Hz. Como los armónicos superiores superan esa frecuencia, el sonido final puede contener componentes por encima del rango audible o de la respuesta de las bocinas. La reproducción usa síntesis digital en tiempo real y limita las frecuencias por debajo de la frecuencia de Nyquist del dispositivo.
+  </footer>
+</main>
+
+<script>
+(() => {
+  const F0 = 750;
+  const TAU = 2 * Math.PI;
+  const signals = [
+    {
+      id: "sine", title: "1. Función senoidal",
+      desc: "Una sola componente sinusoidal: no requiere armónicos adicionales.",
+      defaultTerms: 1, maxTerms: 1,
+      formula: "A*sin(2*pi*f*t)",
+      hint: "Expresión: A*sin(2*pi*f*t). A es la amplitud, f la frecuencia y t el tiempo.",
+      value: (t, terms, A, f) => A * Math.sin(TAU*f*t),
+      audio: (t, terms, A) => A * Math.sin(TAU*F0*t)
+    },
+    {
+      id: "square", title: "2. Función cuadrada",
+      desc: "La serie ideal simétrica usa armónicos impares con amplitud decreciente.",
+      defaultTerms: 9, maxTerms: 31,
+      formula: "(4*A/pi)*SUMA_IMPARES_sin",
+      hint: "Serie teórica: (4A/π)[sin(ωt) + sin(3ωt)/3 + sin(5ωt)/5 + ...]. La fórmula visible es descriptiva; el motor usa el selector de términos.",
+      value: (t, terms, A, f) => {
+        let s = 0;
+        for (let k=0; k<terms; k++) { const n=2*k+1; s += Math.sin(TAU*n*f*t)/n; }
+        return 4*A/Math.PI*s;
+      },
+      audio: (t, terms, A) => {
+        let s=0;
+        for(let k=0;k<terms;k++){const n=2*k+1; s += Math.sin(TAU*n*F0*t)/n;}
+        return 4*A/Math.PI*s;
+      }
+    },
+    {
+      id: "saw", title: "3. Función diente de sierra",
+      desc: "Incluye armónicos pares e impares; las amplitudes disminuyen como 1/n.",
+      defaultTerms: 9, maxTerms: 31,
+      formula: "(2*A/pi)*SUMA((-1)^(n+1)*sin(2*pi*n*f*t)/n)",
+      hint: "Serie teórica: (2A/π) Σ [(-1)^(n+1) sin(nωt)/n]. El selector controla cuántos armónicos se suman.",
+      value: (t, terms, A, f) => {
+        let s=0;
+        for(let n=1;n<=terms;n++) s += Math.pow(-1,n+1)*Math.sin(TAU*n*f*t)/n;
+        return 2*A/Math.PI*s;
+      },
+      audio: (t, terms, A) => {
+        let s=0;
+        for(let n=1;n<=terms;n++) s += Math.pow(-1,n+1)*Math.sin(TAU*n*F0*t)/n;
+        return 2*A/Math.PI*s;
+      }
+    },
+    {
+      id: "triangle", title: "4. Función triangular",
+      desc: "La serie simétrica contiene armónicos impares y amplitudes que decrecen como 1/n².",
+      defaultTerms: 9, maxTerms: 31,
+      formula: "(8*A/pi^2)*SUMA((-1)^k*cos((2*k+1)*2*pi*f*t)/(2*k+1)^2)",
+      hint: "Serie teórica: (8A/π²) Σ [(-1)^k cos((2k+1)ωt)/(2k+1)²]. El selector controla los términos.",
+      value: (t, terms, A, f) => {
+        let s=0;
+        for(let k=0;k<terms;k++){const n=2*k+1; s += Math.pow(-1,k)*Math.cos(TAU*n*f*t)/(n*n);}
+        return 8*A/(Math.PI*Math.PI)*s;
+      },
+      audio: (t, terms, A) => {
+        let s=0;
+        for(let k=0;k<terms;k++){const n=2*k+1; s += Math.pow(-1,k)*Math.cos(TAU*n*F0*t)/(n*n);}
+        return 8*A/(Math.PI*Math.PI)*s;
+      }
+    }
+  ];
+
+  const state = {};
+  let audioContext = null;
+  const activeNodes = new Map();
+
+  const cards = document.getElementById("cards");
+  signals.forEach(sig => {
+    state[sig.id] = {terms:sig.defaultTerms, zoom:1, playing:false, amplitude:1, customFormula:sig.formula};
+    const options = Array.from({length:sig.maxTerms},(_,i)=> {
+      const n=i+1; return `<option value="${n}" ${n===sig.defaultTerms?'selected':''}>${n} ${n===1?'término':'términos'}</option>`;
+    }).join("");
+    cards.insertAdjacentHTML("beforeend", `
+      <article class="card" id="card-${sig.id}">
+        <h2>${sig.title}</h2>
+        <p class="desc">${sig.desc}</p>
+        <canvas id="canvas-${sig.id}" aria-label="Gráfica de ${sig.title}"></canvas>
+        <div class="controls">
+          <div class="full">
+            <label for="formula-${sig.id}">Serie / expresión de Fourier</label>
+            <input type="text" id="formula-${sig.id}" value="${sig.formula}" readonly aria-label="Expresión de Fourier de referencia">
+            <p class="formula-help">${sig.hint}</p>
+          </div>
+          <div>
+            <label for="terms-${sig.id}">Número de términos</label>
+            <select id="terms-${sig.id}">${options}</select>
+          </div>
+          <div>
+            <label for="amp-${sig.id}">Amplitud: <span id="ampText-${sig.id}">1.0</span></label>
+            <input type="range" id="amp-${sig.id}" min="0.1" max="2" step="0.1" value="1">
+          </div>
+          <div class="full">
+            <label>Zoom de la gráfica: <span id="zoomText-${sig.id}">1.0×</span></label>
+            <div class="button-row" style="margin-top:0">
+              <button class="secondary" data-action="zoom-in" data-id="${sig.id}">＋ Acercar</button>
+              <button class="secondary" data-action="zoom-out" data-id="${sig.id}">− Alejar</button>
+              <button class="secondary" data-action="zoom-reset" data-id="${sig.id}">Restablecer zoom</button>
+            </div>
+          </div>
+        </div>
+        <div class="button-row">
+          <button class="primary" data-action="play" data-id="${sig.id}">▶ Reproducir a 750 Hz</button>
+          <button class="stop" data-action="stop" data-id="${sig.id}">■ Detener</button>
+        </div>
+        <div class="status" id="status-${sig.id}">Lista para graficar y reproducir.</div>
+      </article>
+    `);
+  });
+
+  function setupCanvas(canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(rect.width*dpr));
+    canvas.height = Math.max(1, Math.round(rect.height*dpr));
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    return {ctx,w:rect.width,h:rect.height};
+  }
+
+  function draw(sig) {
+    const canvas = document.getElementById(`canvas-${sig.id}`);
+    const {ctx,w,h} = setupCanvas(canvas);
+    const st = state[sig.id];
+    const pad = {l:42,r:14,t:16,b:30};
+    const pw = w-pad.l-pad.r, ph=h-pad.t-pad.b;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle="#fbfdff"; ctx.fillRect(0,0,w,h);
+    const cyclesVisible = 2/st.zoom;
+    const tMax = cyclesVisible/F0;
+    const yScale = 1.25;
+    const yToPix = y => pad.t + ph/2 - (y/yScale)*(ph/2);
+    const xToPix = x => pad.l + x*pw;
+    ctx.strokeStyle="#e1e8f1"; ctx.lineWidth=1;
+    for(let i=0;i<=4;i++){
+      const x=pad.l+pw*i/4;
+      ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,pad.t+ph);ctx.stroke();
+    }
+    for(let i=0;i<=4;i++){
+      const y=pad.t+ph*i/4;
+      ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(pad.l+pw,y);ctx.stroke();
+    }
+    ctx.strokeStyle="#8998ad";ctx.lineWidth=1.1;
+    ctx.beginPath();ctx.moveTo(pad.l,yToPix(0));ctx.lineTo(pad.l+pw,yToPix(0));ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad.l,yToPix(1));ctx.lineTo(pad.l+pw,yToPix(1));ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad.l,yToPix(-1));ctx.lineTo(pad.l+pw,yToPix(-1));ctx.stroke();
+    ctx.fillStyle="#52647c";ctx.font="11px system-ui";
+    ctx.textAlign="right";
+    ctx.fillText("1",pad.l-8,yToPix(1)+4);
+    ctx.fillText("0",pad.l-8,yToPix(0)+4);
+    ctx.fillText("-1",pad.l-8,yToPix(-1)+4);
+    ctx.textAlign="center";
+    ctx.fillText("Tiempo (s)",pad.l+pw/2,h-7);
+    ctx.textAlign="left";
+    ctx.fillText(`${st.zoom.toFixed(1)}×`,pad.l+4,pad.t+12);
+
+    const samples = Math.max(500, Math.floor(pw*3));
+    ctx.beginPath();
+    for(let i=0;i<=samples;i++){
+      const u=i/samples, t=u*tMax;
+      const y=sig.value(t,st.terms,st.amplitude,F0);
+      const px=xToPix(u), py=yToPix(y);
+      if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+    }
+    ctx.strokeStyle = sig.id==="sine" ? "#2878c8" :
+                      sig.id==="square" ? "#d34f4f" :
+                      sig.id==="saw" ? "#15936d" : "#8858c9";
+    ctx.lineWidth=2.2;ctx.lineJoin="round";ctx.stroke();
+    ctx.fillStyle="#627087";ctx.font="10px system-ui";ctx.textAlign="center";
+    ctx.fillText("0",pad.l,pad.t+ph+15);
+    ctx.fillText((tMax/2).toExponential(1),pad.l+pw/2,pad.t+ph+15);
+    ctx.fillText(tMax.toExponential(1),pad.l+pw,pad.t+ph+15);
+  }
+
+  function redrawAll() { signals.forEach(draw); }
+
+  function setStatus(id, text) {
+    document.getElementById(`status-${id}`).textContent = text;
+  }
+
+  function ensureAudio() {
+    if(!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if(audioContext.state === "suspended") return audioContext.resume();
+    return Promise.resolve();
+  }
+
+  function stopSignal(id) {
+    const node = activeNodes.get(id);
+    if(node) {
+      try { node.processor.disconnect(); } catch(e) {}
+      try { node.seriesGain.disconnect(); } catch(e) {}
+      activeNodes.delete(id);
+    }
+    state[id].playing = false;
+    const btn = document.querySelector(`[data-action="play"][data-id="${id}"]`);
+    if(btn) btn.textContent = "▶ Reproducir a 750 Hz";
+    setStatus(id, "Reproducción detenida.");
+  }
+
+  async function playSignal(sig) {
+    await ensureAudio();
+    stopSignal(sig.id);
+    const st = state[sig.id];
+    const sampleRate = audioContext.sampleRate;
+    const processor = audioContext.createScriptProcessor(2048,0,1);
+    const seriesGain = audioContext.createGain();
+    seriesGain.gain.value = Number(document.getElementById("volume").value)/100;
+    let phase = 0;
+    processor.onaudioprocess = (event) => {
+      const output = event.outputBuffer.getChannelData(0);
+      for(let i=0;i<output.length;i++){
+        const t = phase / sampleRate;
+        // La serie se evalúa muestra a muestra con fundamental F0 = 750 Hz.
+        const value = sig.audio(t,st.terms,st.amplitude);
+        output[i] = Math.max(-1,Math.min(1,value*0.22));
+        phase++;
+      }
+    };
+    processor.connect(seriesGain);
+    seriesGain.connect(audioContext.destination);
+    activeNodes.set(sig.id,{processor,seriesGain});
+    state[sig.id].playing = true;
+    document.querySelector(`[data-action="play"][data-id="${sig.id}"]`).textContent = "▶ Reproduciendo…";
+    setStatus(sig.id, `Reproduciendo la serie con ${st.terms} término(s); frecuencia fundamental de 750 Hz.`);
+  }
+
+  // Enlazar controles de cada tarjeta.
+  signals.forEach(sig => {
+    const id=sig.id;
+    document.getElementById(`terms-${id}`).addEventListener("change",e=>{
+      state[id].terms=Number(e.target.value); draw(sig);
+      if(state[id].playing) playSignal(sig);
+    });
+    document.getElementById(`amp-${id}`).addEventListener("input",e=>{
+      state[id].amplitude=Number(e.target.value);
+      document.getElementById(`ampText-${id}`).textContent=state[id].amplitude.toFixed(1);
+      draw(sig);
+      if(state[id].playing) playSignal(sig);
+    });
+  });
+
+  document.addEventListener("click",e=>{
+    const btn=e.target.closest("button[data-action]");
+    if(!btn)return;
+    const id=btn.dataset.id, action=btn.dataset.action;
+    const sig=signals.find(s=>s.id===id);
+    if(action==="zoom-in"){state[id].zoom=Math.min(8,state[id].zoom*1.5);document.getElementById(`zoomText-${id}`).textContent=state[id].zoom.toFixed(1)+"×";draw(sig);}
+    if(action==="zoom-out"){state[id].zoom=Math.max(0.5,state[id].zoom/1.5);document.getElementById(`zoomText-${id}`).textContent=state[id].zoom.toFixed(1)+"×";draw(sig);}
+    if(action==="zoom-reset"){state[id].zoom=1;document.getElementById(`zoomText-${id}`).textContent="1.0×";draw(sig);}
+    if(action==="play")playSignal(sig).catch(err=>setStatus(id,"No se pudo iniciar el audio. Haz clic de nuevo y comprueba que el navegador permita reproducir sonido."));
+    if(action==="stop")stopSignal(id);
+  });
+
+  document.getElementById("volume").addEventListener("input",e=>{
+    document.getElementById("volumeText").textContent=e.target.value+"%";
+    activeNodes.forEach(node=>{
+      if(node.seriesGain)node.seriesGain.gain.value=Number(e.target.value)/100;
+    });
+  });
+  document.getElementById("stopAll").addEventListener("click",()=>signals.forEach(s=>stopSignal(s.id)));
+  window.addEventListener("resize",redrawAll);
+  redrawAll();
+})();
+</script>
+</body>
+</html>
